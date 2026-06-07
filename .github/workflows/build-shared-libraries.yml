@@ -159,7 +159,7 @@ jobs:
         EOF
         docker run --rm \
           -v "$PWD/$package:/rocksdb:ro" \
-          -v "$PWD/dotnet-load-test:/src:ro" \
+          -v "$PWD/dotnet-load-test:/src" \
           -w /src \
           mcr.microsoft.com/dotnet/sdk:8.0 \
           dotnet run --configuration Release -- \
