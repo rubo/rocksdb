@@ -51,6 +51,7 @@ jobs:
           -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           "-DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -DFAIL_ON_WARNINGS=OFF
           -DPORTABLE=1
           -DROCKSDB_BUILD_SHARED=ON
           -DUSE_RTTI=OFF
@@ -158,14 +159,23 @@ jobs:
         $deps = Join-Path $PWD `
           "vcpkg/installed/${{ matrix.vcpkg_triplet }}"
 
-        function Find-StaticLibrary([string[]] $names) {
-          foreach ($name in $names) {
-            $candidate = Join-Path $deps "lib/$name"
-            if (Test-Path $candidate) {
-              return $candidate
+        function Find-StaticLibrary([string[]] $patterns) {
+          $libraryDirectory = Join-Path $deps "lib"
+          foreach ($pattern in $patterns) {
+            $matches = @(Get-ChildItem $libraryDirectory -File `
+              -Filter $pattern)
+            if ($matches.Count -eq 1) {
+              return $matches[0].FullName
+            }
+            if ($matches.Count -gt 1) {
+              throw "Multiple libraries matched ${pattern}: $matches"
             }
           }
-          throw "Could not find any of: $($names -join ', ')"
+          $available = Get-ChildItem $libraryDirectory -File -Filter *.lib |
+            Select-Object -ExpandProperty Name
+          $message = "Could not find any of: $($patterns -join ', '). " +
+            "Available libraries: $($available -join ', ')"
+          throw $message
         }
 
         $env:SNAPPY_INCLUDE = Join-Path $deps "include"
@@ -175,7 +185,8 @@ jobs:
         $env:LZ4_LIB_RELEASE = Find-StaticLibrary @("lz4.lib")
         $env:LZ4_LIB_DEBUG = $env:LZ4_LIB_RELEASE
         $env:ZLIB_INCLUDE = Join-Path $deps "include"
-        $env:ZLIB_LIB_RELEASE = Find-StaticLibrary @("zlib.lib")
+        $env:ZLIB_LIB_RELEASE = Find-StaticLibrary `
+          @("zlib.lib", "zlibstatic.lib", "zlib*.lib")
         $env:ZLIB_LIB_DEBUG = $env:ZLIB_LIB_RELEASE
         $env:ZSTD_INCLUDE = Join-Path $deps "include"
         $env:ZSTD_LIB_RELEASE = Find-StaticLibrary `
@@ -193,6 +204,7 @@ jobs:
           "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
           "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
           "-DCMAKE_SHARED_LINKER_FLAGS=$bzip2Library",
+          "-DFAIL_ON_WARNINGS=OFF",
           "-DPORTABLE=1",
           "-DROCKSDB_BUILD_SHARED=ON",
           "-DROCKSDB_INSTALL_ON_WINDOWS=ON",
@@ -309,6 +321,7 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target }} \
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
           -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DFAIL_ON_WARNINGS=OFF \
           -DPORTABLE=1 \
           -DROCKSDB_BUILD_SHARED=ON \
           -DUSE_RTTI=OFF \
