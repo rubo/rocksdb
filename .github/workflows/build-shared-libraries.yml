@@ -161,7 +161,7 @@ jobs:
           -v "$PWD/$package:/rocksdb:ro" \
           -v "$PWD/dotnet-load-test:/src:ro" \
           -w /src \
-          mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim \
+          mcr.microsoft.com/dotnet/sdk:8.0 \
           dotnet run --configuration Release -- \
           /rocksdb/lib/librocksdb.so
     - uses: actions/upload-artifact@v4
