@@ -34,6 +34,10 @@ jobs:
       shell: bash
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        portfile=vcpkg/ports/mimalloc/portfile.cmake
+        grep -q -- '-DMI_USE_CXX=ON' "$portfile"
+        sed -i '/-DMI_USE_CXX=ON/a\        -DMI_LOCAL_DYNAMIC_TLS=ON' \
+          "$portfile"
         ./vcpkg/vcpkg install \
           "mimalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
