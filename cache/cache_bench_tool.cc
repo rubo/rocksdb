@@ -124,6 +124,9 @@ DEFINE_string(cache_type, "hyper_clock_cache", "Type of block cache.");
 DEFINE_bool(use_jemalloc_no_dump_allocator, false,
             "Whether to use JemallocNoDumpAllocator");
 
+DEFINE_bool(use_mimalloc_allocator, false,
+            "Whether to use MimallocAllocator");
+
 DEFINE_uint32(jemalloc_no_dump_allocator_num_arenas,
               ROCKSDB_NAMESPACE::JemallocAllocatorOptions().num_arenas,
               "JemallocNodumpAllocator::num_arenas");
@@ -405,6 +408,9 @@ class CacheBench {
       opts.limit_tcache_size =
           FLAGS_jemalloc_no_dump_allocator_limit_tcache_size;
       Status s = NewJemallocNodumpAllocator(opts, &allocator);
+      assert(s.ok());
+    } else if (FLAGS_use_mimalloc_allocator) {
+      Status s = NewMimallocAllocator(&allocator);
       assert(s.ok());
     }
     if (FLAGS_cache_type == "clock_cache") {

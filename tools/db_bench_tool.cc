@@ -663,6 +663,9 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 DEFINE_bool(use_cache_jemalloc_no_dump_allocator, false,
             "Use JemallocNodumpAllocator for block/blob cache.");
 
+DEFINE_bool(use_cache_mimalloc_allocator, false,
+            "Use MimallocAllocator for block/blob cache.");
+
 DEFINE_bool(use_cache_memkind_kmem_allocator, false,
             "Use memkind kmem allocator for block/blob cache.");
 
@@ -3313,6 +3316,11 @@ class Benchmark {
       JemallocAllocatorOptions jemalloc_options;
       if (!NewJemallocNodumpAllocator(jemalloc_options, &allocator).ok()) {
         fprintf(stderr, "JemallocNodumpAllocator not supported.\n");
+        db_bench_exit(1);
+      }
+    } else if (FLAGS_use_cache_mimalloc_allocator) {
+      if (!NewMimallocAllocator(&allocator).ok()) {
+        fprintf(stderr, "MimallocAllocator not supported.\n");
         db_bench_exit(1);
       }
     } else if (FLAGS_use_cache_memkind_kmem_allocator) {

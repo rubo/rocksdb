@@ -8,6 +8,7 @@
 
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
+#include "memory/mimalloc_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -209,6 +210,22 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   ASSERT_EQ(opts->limit_tcache_size, jopts.limit_tcache_size);
 }
 
+TEST_F(CreateMemoryAllocatorTest, NewMimallocAllocator) {
+  std::shared_ptr<MemoryAllocator> allocator;
+
+  ASSERT_NOK(NewMimallocAllocator(nullptr));
+  Status s = NewMimallocAllocator(&allocator);
+  std::string msg;
+  if (!MimallocAllocator::IsSupported(&msg)) {
+    ASSERT_NOK(s);
+    ROCKSDB_GTEST_BYPASS("MIMALLOC not supported");
+    return;
+  }
+  ASSERT_OK(s);
+  ASSERT_NE(allocator, nullptr);
+  ASSERT_STREQ(allocator->Name(), MimallocAllocator::kClassName());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultMemoryAllocator, MemoryAllocatorTest,
                         ::testing::Values(std::make_tuple(
                             DefaultMemoryAllocator::kClassName(), true)));
@@ -225,6 +242,13 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(JemallocNodumpAllocator::kClassName(),
                                       JemallocNodumpAllocator::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
+
+#ifdef ROCKSDB_MIMALLOC
+INSTANTIATE_TEST_CASE_P(
+    MimallocAllocator, MemoryAllocatorTest,
+    ::testing::Values(std::make_tuple(MimallocAllocator::kClassName(),
+                                      MimallocAllocator::IsSupported())));
+#endif  // ROCKSDB_MIMALLOC
 
 }  // namespace ROCKSDB_NAMESPACE
 

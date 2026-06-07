@@ -41,6 +41,11 @@ most processors made since roughly 2013.
   - [zstandard](http://www.zstd.net) - Fast real-time compression
       algorithm.
 
+* RocksDB can use mimalloc for cache buffers, memtable arena backing blocks,
+  and process-wide internal allocations. Install mimalloc, then build with
+  `ROCKSDB_USE_MIMALLOC=1 make static_lib` or CMake option
+  `-DWITH_MIMALLOC=ON`. Mimalloc and jemalloc cannot be enabled together.
+
 * All our tools depend on:
   - [gflags](https://gflags.github.io/gflags/) - a library that handles
       command line flags processing. You can compile rocksdb library even

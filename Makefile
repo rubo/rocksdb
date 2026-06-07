@@ -367,9 +367,10 @@ endif
 endif
 endif
 
-# ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
+# ASAN should use the sanitizer allocator instead of an overriding allocator.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
+	DISABLE_MIMALLOC=1
 	ASAN_OPTIONS?=detect_stack_use_after_return=1
 	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
@@ -384,9 +385,10 @@ endif
 endif
 endif
 
-# TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
+# TSAN should use the sanitizer allocator instead of an overriding allocator.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
+	DISABLE_MIMALLOC=1
 	# Use a suppressions file instead of the process-wide TSAN default
 	# suppressions hook, which belongs to the final application.
 	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
@@ -407,9 +409,10 @@ ifeq ($(PLATFORM), OS_AIX)
 	PROFILING_FLAGS =
 endif
 
-# USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
+# UBSAN should use the system allocator instead of an overriding allocator.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
+	DISABLE_MIMALLOC=1
 	# Suppress alignment warning because murmurhash relies on casting unaligned
 	# memory to integer. Fixing it may cause performance regression. 3-way crc32
 	# relies on it too, although it can be rewritten to eliminate with minimal
@@ -428,6 +431,26 @@ ifdef ROCKSDB_FULL_VALGRIND_RUN
 	# explicitly requested via the ROCKSDB_FULL_VALGRIND_RUN compiler flag.
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
 	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+endif
+
+ifdef MIMALLOC
+ifdef JEMALLOC
+$(error MIMALLOC and JEMALLOC are mutually exclusive)
+endif
+endif
+
+ifndef DISABLE_MIMALLOC
+	ifdef MIMALLOC
+		PLATFORM_CXXFLAGS += -DROCKSDB_MIMALLOC
+		PLATFORM_CCFLAGS  += -DROCKSDB_MIMALLOC
+	endif
+	ifdef WITH_MIMALLOC_FLAG
+		PLATFORM_LDFLAGS += -lmimalloc
+		JAVA_LDFLAGS += -lmimalloc
+	endif
+	EXEC_LDFLAGS := $(MIMALLOC_LIB) $(EXEC_LDFLAGS)
+	PLATFORM_CXXFLAGS += $(MIMALLOC_INCLUDE)
+	PLATFORM_CCFLAGS += $(MIMALLOC_INCLUDE)
 endif
 
 ifndef DISABLE_JEMALLOC

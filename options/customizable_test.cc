@@ -18,6 +18,7 @@
 #include "db/db_test_util.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
+#include "memory/mimalloc_allocator.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
@@ -2003,6 +2004,8 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
     for (const auto& failure : failures) {
       if (failure == JemallocNodumpAllocator::kClassName()) {
         ASSERT_FALSE(JemallocNodumpAllocator::IsSupported());
+      } else if (failure == MimallocAllocator::kClassName()) {
+        ASSERT_FALSE(MimallocAllocator::IsSupported());
       } else if (failure == MemkindKmemAllocator::kClassName()) {
         ASSERT_FALSE(MemkindKmemAllocator::IsSupported());
       } else {

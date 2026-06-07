@@ -437,7 +437,25 @@ EOF
         fi
     fi
 
-    if ! test $ROCKSDB_DISABLE_JEMALLOC; then
+    if test -n "$ROCKSDB_USE_MIMALLOC" &&
+       ! test "$ROCKSDB_DISABLE_MIMALLOC"; then
+        # Mimalloc is opt-in because it replaces the process allocator.
+        MIMALLOC_LINK=${MIMALLOC_LIB:--lmimalloc}
+        if echo '#include <mimalloc.h>
+                 int main() { return mi_version() == 0; }' |
+          $CXX $PLATFORM_CXXFLAGS $MIMALLOC_INCLUDE $LDFLAGS -x c++ - \
+          -o test.o $MIMALLOC_LINK 2>/dev/null; then
+            MIMALLOC=1
+            if test -z "$MIMALLOC_LIB"; then
+                WITH_MIMALLOC_FLAG=1
+            fi
+        else
+            echo "mimalloc requested but not found" >&2
+            exit 1
+        fi
+    fi
+
+    if ! test "$MIMALLOC" && ! test $ROCKSDB_DISABLE_JEMALLOC; then
         # Test whether jemalloc is available
         if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -ljemalloc \
           2>/dev/null; then
@@ -465,7 +483,8 @@ EOF
             fi
         fi
     fi
-    if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then
+    if ! test "$MIMALLOC" && ! test $JEMALLOC &&
+       ! test $ROCKSDB_DISABLE_TCMALLOC; then
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o \
           -ltcmalloc 2>/dev/null; then
@@ -827,6 +846,8 @@ echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> "$OUTPUT"
 echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> "$OUTPUT"
 echo "JEMALLOC_INCLUDE=$JEMALLOC_INCLUDE" >> "$OUTPUT"
 echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> "$OUTPUT"
+echo "MIMALLOC_INCLUDE=$MIMALLOC_INCLUDE" >> "$OUTPUT"
+echo "MIMALLOC_LIB=$MIMALLOC_LIB" >> "$OUTPUT"
 echo "ROCKSDB_MAJOR=$ROCKSDB_MAJOR" >> "$OUTPUT"
 echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
@@ -843,11 +864,17 @@ echo "FMT_SOURCE_PATH=$FMT_SOURCE_PATH" >> "$OUTPUT"
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
 fi
+if test -n "$MIMALLOC"; then
+  echo "MIMALLOC=1" >> "$OUTPUT"
+fi
 # Indicates that jemalloc should be enabled using -ljemalloc flag
 # The alternative is to porvide a direct link to the library via JEMALLOC_LIB
 # and JEMALLOC_INCLUDE
 if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
+fi
+if test -n "$WITH_MIMALLOC_FLAG"; then
+  echo "WITH_MIMALLOC_FLAG=$WITH_MIMALLOC_FLAG" >> "$OUTPUT"
 fi
 if test -n "$USE_FOLLY"; then
   echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"

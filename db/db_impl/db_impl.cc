@@ -84,6 +84,9 @@
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
+#ifdef ROCKSDB_MIMALLOC
+#include "port/mimalloc_helper.h"
+#endif
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -168,6 +171,12 @@ void DumpSupportInfo(Logger* logger) {
   jemalloc_supported = HasJemalloc();
 #endif
   ROCKS_LOG_HEADER(logger, "Jemalloc supported: %d", jemalloc_supported);
+
+  bool mimalloc_supported = false;
+#ifdef ROCKSDB_MIMALLOC
+  mimalloc_supported = HasMimalloc();
+#endif
+  ROCKS_LOG_HEADER(logger, "Mimalloc supported: %d", mimalloc_supported);
 }
 }  // namespace
 

@@ -6478,6 +6478,13 @@ rocksdb_memory_allocator_t* rocksdb_jemalloc_nodump_allocator_create(
   return allocator;
 }
 
+rocksdb_memory_allocator_t* rocksdb_mimalloc_allocator_create(char** errptr) {
+  rocksdb_memory_allocator_t* allocator = new rocksdb_memory_allocator_t;
+  SaveError(errptr,
+            ROCKSDB_NAMESPACE::NewMimallocAllocator(&allocator->rep));
+  return allocator;
+}
+
 void rocksdb_memory_allocator_destroy(rocksdb_memory_allocator_t* allocator) {
   delete allocator;
 }

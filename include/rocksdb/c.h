@@ -2509,6 +2509,8 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushoptions_get_wait(
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
 rocksdb_jemalloc_nodump_allocator_create(char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
+rocksdb_mimalloc_allocator_create(char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_memory_allocator_destroy(
     rocksdb_memory_allocator_t*);
 

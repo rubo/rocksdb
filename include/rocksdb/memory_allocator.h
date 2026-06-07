@@ -84,4 +84,12 @@ Status NewJemallocNodumpAllocator(
     const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
+// Generate a memory allocator backed directly by mimalloc. The allocator is
+// available when RocksDB is built with mimalloc support.
+//
+// Building RocksDB with mimalloc also makes mimalloc the process allocator,
+// covering memtable arena backing blocks and other internal allocations.
+Status NewMimallocAllocator(
+    std::shared_ptr<MemoryAllocator>* memory_allocator);
+
 }  // namespace ROCKSDB_NAMESPACE
