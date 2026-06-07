@@ -1330,6 +1330,9 @@ if(ROCKSDB_BUILD_SHARED)
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  if(WITH_MIMALLOC AND UNIX AND NOT APPLE)
+    target_link_options(${ROCKSDB_SHARED_LIB} PRIVATE "LINKER:-z,defs")
+  endif()
 
   if(WIN32)
     set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES

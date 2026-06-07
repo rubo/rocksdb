@@ -35,7 +35,7 @@ jobs:
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
         ./vcpkg/vcpkg install \
-          "mimalloc[override]:${{ matrix.vcpkg_triplet }}" \
+          "mimalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
           "zstd:${{ matrix.vcpkg_triplet }}" \
           "lz4:${{ matrix.vcpkg_triplet }}" \
@@ -108,13 +108,58 @@ jobs:
         file "rocksdb-linux-${{ matrix.arch }}/lib/"librocksdb.so*
         readelf -d "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
           grep NEEDED
-        ldd "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so"
+        loader_output="$(ldd -r \
+          "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" 2>&1)"
+        echo "$loader_output"
+        if grep -E 'not found|undefined symbol' <<<"$loader_output"; then
+          echo "Packaged RocksDB has unresolved runtime dependencies"
+          exit 1
+        fi
+        python3 - <<'PY'
+        import ctypes
+        import os
+
+        path = os.path.realpath(
+            "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so"
+        )
+        ctypes.CDLL(path, mode=ctypes.RTLD_LOCAL)
+        print(f"Loaded {path}")
+        PY
         if readelf -d \
           "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
           grep -E 'lib(mimalloc|snappy|zstd|lz4|z|bz2)\.so'; then
           echo "Third-party dependencies must be statically linked"
           exit 1
         fi
+    - name: Verify from .NET container
+      if: matrix.arch == 'x64'
+      shell: bash
+      run: |
+        package="rocksdb-linux-${{ matrix.arch }}"
+        mkdir -p dotnet-load-test
+        cat >dotnet-load-test/dotnet-load-test.csproj <<'EOF'
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net8.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        EOF
+        cat >dotnet-load-test/Program.cs <<'EOF'
+        using System;
+        using System.Runtime.InteropServices;
+
+        IntPtr handle = NativeLibrary.Load(args[0]);
+        Console.WriteLine($"Loaded {args[0]}");
+        NativeLibrary.Free(handle);
+        EOF
+        docker run --rm \
+          -v "$PWD/$package:/rocksdb:ro" \
+          -v "$PWD/dotnet-load-test:/src:ro" \
+          -w /src \
+          mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim \
+          dotnet run --configuration Release -- \
+          /rocksdb/lib/librocksdb.so
     - uses: actions/upload-artifact@v4
       with:
         name: rocksdb-linux-${{ matrix.arch }}
@@ -317,7 +362,7 @@ jobs:
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
         ./vcpkg/vcpkg install \
-          "mimalloc[override]:${{ matrix.vcpkg_triplet }}" \
+          "mimalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
           "zstd:${{ matrix.vcpkg_triplet }}" \
           "lz4:${{ matrix.vcpkg_triplet }}" \
