@@ -66,7 +66,6 @@ void DumpMallocStats(std::string* stats) {
 #ifdef ROCKSDB_JEMALLOC
   malloc_stats_print(GetJemallocStatus, &mstat, "");
 #elif defined(ROCKSDB_MIMALLOC)
-  mi_stats_merge();
   mi_stats_print_out(GetMimallocStatus, &mstat);
 #endif
   stats->append(buf.get());
