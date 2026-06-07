@@ -92,6 +92,8 @@ jobs:
         mkdir -p "$package/include" "$package/lib" "$package/licenses"
         cp -R include/rocksdb "$package/include/"
         cp -a build/librocksdb.so* "$package/lib/"
+        find "$package/lib" -type f -name 'librocksdb.so*' \
+          -exec strip --strip-debug {} +
         cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
         for dependency in snappy zstd lz4 zlib bzip2; do
           cp "$deps/share/$dependency/copyright" \
@@ -211,6 +213,7 @@ jobs:
           "-DROCKSDB_BUILD_SHARED=ON",
           "-DROCKSDB_INSTALL_ON_WINDOWS=ON",
           "-DUSE_RTTI=OFF",
+          "-DWIN_CI=ON",
           "-DWITH_BENCHMARK_TOOLS=OFF",
           "-DWITH_CORE_TOOLS=OFF",
           "-DWITH_EXAMPLES=OFF",
@@ -249,10 +252,9 @@ jobs:
         }
 
         Copy-Item $dll.FullName "$package/bin/"
+        & llvm-strip --strip-debug "$package/bin/rocksdb-shared.dll"
+        if (!$?) { exit $LASTEXITCODE }
         Copy-Item $importLibrary.FullName "$package/lib/"
-        Get-ChildItem build -Recurse -Filter rocksdb-shared.pdb |
-          Select-Object -First 1 |
-          Copy-Item -Destination "$package/bin/"
         Copy-Item COPYING, LICENSE.Apache, LICENSE.leveldb, README.md $package
         foreach ($dependency in @("snappy", "zstd", "lz4", "zlib", "bzip2")) {
           Copy-Item "$deps/share/$dependency/copyright" `
@@ -351,6 +353,8 @@ jobs:
         mkdir -p "$package/include" "$package/lib" "$package/licenses"
         cp -R include/rocksdb "$package/include/"
         cp -a build/librocksdb*.dylib "$package/lib/"
+        find "$package/lib" -type f -name 'librocksdb*.dylib' \
+          -exec strip -S {} +
         cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
         for dependency in snappy zstd lz4 zlib bzip2; do
           cp "$deps/share/$dependency/copyright" \
