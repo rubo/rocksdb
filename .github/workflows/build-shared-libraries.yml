@@ -186,7 +186,7 @@ jobs:
         $env:LZ4_LIB_DEBUG = $env:LZ4_LIB_RELEASE
         $env:ZLIB_INCLUDE = Join-Path $deps "include"
         $env:ZLIB_LIB_RELEASE = Find-StaticLibrary `
-          @("zlib.lib", "zlibstatic.lib", "zlib*.lib")
+          @("zs.lib", "zlib.lib", "zlibstatic.lib", "zlib*.lib")
         $env:ZLIB_LIB_DEBUG = $env:ZLIB_LIB_RELEASE
         $env:ZSTD_INCLUDE = Join-Path $deps "include"
         $env:ZSTD_LIB_RELEASE = Find-StaticLibrary `
