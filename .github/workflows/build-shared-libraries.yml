@@ -39,6 +39,16 @@ jobs:
       shell: bash
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        portfile=vcpkg/ports/jemalloc/portfile.cmake
+        grep -Fxq '    OPTIONS ${opts}' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    OPTIONS ${opts}' ]]; then
+            printf '%s\n' '        --disable-initial-exec-tls'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- '--disable-initial-exec-tls' "$portfile"
         ./vcpkg/vcpkg install \
           "jemalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
@@ -368,6 +378,16 @@ jobs:
         MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        portfile=vcpkg/ports/jemalloc/portfile.cmake
+        grep -Fxq '    OPTIONS ${opts}' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    OPTIONS ${opts}' ]]; then
+            printf '%s\n' '        --disable-initial-exec-tls'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- '--disable-initial-exec-tls' "$portfile"
         ./vcpkg/vcpkg install \
           "jemalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
