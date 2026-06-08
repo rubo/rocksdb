@@ -127,6 +127,9 @@ DEFINE_bool(use_jemalloc_no_dump_allocator, false,
 DEFINE_bool(use_mimalloc_allocator, false,
             "Whether to use MimallocAllocator");
 
+DEFINE_bool(use_tcmalloc_allocator, false,
+            "Whether to use TCMallocAllocator");
+
 DEFINE_uint32(jemalloc_no_dump_allocator_num_arenas,
               ROCKSDB_NAMESPACE::JemallocAllocatorOptions().num_arenas,
               "JemallocNodumpAllocator::num_arenas");
@@ -411,6 +414,9 @@ class CacheBench {
       assert(s.ok());
     } else if (FLAGS_use_mimalloc_allocator) {
       Status s = NewMimallocAllocator(&allocator);
+      assert(s.ok());
+    } else if (FLAGS_use_tcmalloc_allocator) {
+      Status s = NewTCMallocAllocator(&allocator);
       assert(s.ok());
     }
     if (FLAGS_cache_type == "clock_cache") {

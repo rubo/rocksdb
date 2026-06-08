@@ -19,6 +19,7 @@
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
 #include "memory/mimalloc_allocator.h"
+#include "memory/tcmalloc_allocator.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
@@ -2006,6 +2007,8 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
         ASSERT_FALSE(JemallocNodumpAllocator::IsSupported());
       } else if (failure == MimallocAllocator::kClassName()) {
         ASSERT_FALSE(MimallocAllocator::IsSupported());
+      } else if (failure == TCMallocAllocator::kClassName()) {
+        ASSERT_FALSE(TCMallocAllocator::IsSupported());
       } else if (failure == MemkindKmemAllocator::kClassName()) {
         ASSERT_FALSE(MemkindKmemAllocator::IsSupported());
       } else {

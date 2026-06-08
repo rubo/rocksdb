@@ -2511,6 +2511,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
 rocksdb_jemalloc_nodump_allocator_create(char** errptr);
 extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
 rocksdb_mimalloc_allocator_create(char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
+rocksdb_tcmalloc_allocator_create(char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_memory_allocator_destroy(
     rocksdb_memory_allocator_t*);
 

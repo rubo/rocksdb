@@ -3599,6 +3599,37 @@ int main(int argc, char** argv) {
     rocksdb_memory_allocator_destroy(allocator);
   }
 
+  StartPhase("tcmalloc_allocator");
+  {
+    rocksdb_memory_allocator_t* allocator;
+    allocator = rocksdb_tcmalloc_allocator_create(&err);
+    if (err != NULL) {
+      // not supported on all platforms, allow unsupported error
+      const char* ni = "Not implemented: ";
+      size_t ni_len = strlen(ni);
+      size_t err_len = strlen(err);
+
+      CheckCondition(err_len >= ni_len);
+      CheckCondition(memcmp(ni, err, ni_len) == 0);
+      Free(&err);
+    } else {
+      rocksdb_cache_t* co;
+      rocksdb_lru_cache_options_t* copts;
+
+      copts = rocksdb_lru_cache_options_create();
+
+      rocksdb_lru_cache_options_set_capacity(copts, 100);
+      rocksdb_lru_cache_options_set_memory_allocator(copts, allocator);
+
+      co = rocksdb_cache_create_lru_opts(copts);
+      CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+      rocksdb_cache_destroy(co);
+      rocksdb_lru_cache_options_destroy(copts);
+    }
+    rocksdb_memory_allocator_destroy(allocator);
+  }
+
   StartPhase("stderr_logger");
   {
     rocksdb_options_t* o_no_prefix = rocksdb_options_create();

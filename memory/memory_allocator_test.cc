@@ -9,6 +9,7 @@
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
 #include "memory/mimalloc_allocator.h"
+#include "memory/tcmalloc_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -226,6 +227,22 @@ TEST_F(CreateMemoryAllocatorTest, NewMimallocAllocator) {
   ASSERT_STREQ(allocator->Name(), MimallocAllocator::kClassName());
 }
 
+TEST_F(CreateMemoryAllocatorTest, NewTCMallocAllocator) {
+  std::shared_ptr<MemoryAllocator> allocator;
+
+  ASSERT_NOK(NewTCMallocAllocator(nullptr));
+  Status s = NewTCMallocAllocator(&allocator);
+  std::string msg;
+  if (!TCMallocAllocator::IsSupported(&msg)) {
+    ASSERT_NOK(s);
+    ROCKSDB_GTEST_BYPASS("TCMALLOC not supported");
+    return;
+  }
+  ASSERT_OK(s);
+  ASSERT_NE(allocator, nullptr);
+  ASSERT_STREQ(allocator->Name(), TCMallocAllocator::kClassName());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultMemoryAllocator, MemoryAllocatorTest,
                         ::testing::Values(std::make_tuple(
                             DefaultMemoryAllocator::kClassName(), true)));
@@ -249,6 +266,13 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(MimallocAllocator::kClassName(),
                                       MimallocAllocator::IsSupported())));
 #endif  // ROCKSDB_MIMALLOC
+
+#ifdef ROCKSDB_TCMALLOC
+INSTANTIATE_TEST_CASE_P(
+    TCMallocAllocator, MemoryAllocatorTest,
+    ::testing::Values(std::make_tuple(TCMallocAllocator::kClassName(),
+                                      TCMallocAllocator::IsSupported())));
+#endif  // ROCKSDB_TCMALLOC
 
 }  // namespace ROCKSDB_NAMESPACE
 

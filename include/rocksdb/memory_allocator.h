@@ -92,4 +92,12 @@ Status NewJemallocNodumpAllocator(
 Status NewMimallocAllocator(
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
+// Generate a memory allocator backed directly by gperftools TCMalloc. The
+// allocator is available when RocksDB is built with TCMalloc support.
+//
+// Building RocksDB with TCMalloc also makes TCMalloc the process allocator,
+// covering memtable arena backing blocks and other internal allocations.
+Status NewTCMallocAllocator(
+    std::shared_ptr<MemoryAllocator>* memory_allocator);
+
 }  // namespace ROCKSDB_NAMESPACE

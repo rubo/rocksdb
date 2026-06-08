@@ -143,6 +143,7 @@ LIB_SOURCES =                                                   \
   memory/memkind_kmem_allocator.cc                              \
   memory/memory_allocator.cc                                    \
   memory/mimalloc_allocator.cc                                  \
+  memory/tcmalloc_allocator.cc                                  \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \

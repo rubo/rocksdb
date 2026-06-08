@@ -44,10 +44,16 @@ most processors made since roughly 2013.
 * RocksDB can use mimalloc for cache buffers and memtable arena backing
   blocks. Install mimalloc, then build with
   `ROCKSDB_USE_MIMALLOC=1 make static_lib` or CMake option
-  `-DWITH_MIMALLOC=ON`. Mimalloc and jemalloc cannot be enabled together.
+  `-DWITH_MIMALLOC=ON`. Mimalloc, jemalloc, and TCMalloc cannot be enabled
+  together.
   Packaged shared libraries do not override the allocator of their host
   process; applications can use mimalloc's supported preload mechanism when
   process-wide allocation replacement is required.
+
+* RocksDB can use gperftools TCMalloc for cache buffers and memtable arena
+  backing blocks. Install gperftools and build with CMake option
+  `-DWITH_TCMALLOC=ON`. Make builds automatically use TCMalloc when mimalloc
+  and jemalloc are unavailable, unless `ROCKSDB_DISABLE_TCMALLOC=1` is set.
 
 * All our tools depend on:
   - [gflags](https://gflags.github.io/gflags/) - a library that handles

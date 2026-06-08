@@ -8,6 +8,7 @@
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
 #include "memory/mimalloc_allocator.h"
+#include "memory/tcmalloc_allocator.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -53,6 +54,15 @@ static int RegisterBuiltinAllocators(ObjectLibrary& library,
          std::string* errmsg) {
         if (MimallocAllocator::IsSupported(errmsg)) {
           guard->reset(new MimallocAllocator());
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemoryAllocator>(
+      TCMallocAllocator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* errmsg) {
+        if (TCMallocAllocator::IsSupported(errmsg)) {
+          guard->reset(new TCMallocAllocator());
         }
         return guard->get();
       });

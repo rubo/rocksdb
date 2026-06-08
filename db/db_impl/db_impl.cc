@@ -87,6 +87,9 @@
 #ifdef ROCKSDB_MIMALLOC
 #include "port/mimalloc_helper.h"
 #endif
+#ifdef ROCKSDB_TCMALLOC
+#include "port/tcmalloc_helper.h"
+#endif
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -177,6 +180,12 @@ void DumpSupportInfo(Logger* logger) {
   mimalloc_supported = HasMimalloc();
 #endif
   ROCKS_LOG_HEADER(logger, "Mimalloc supported: %d", mimalloc_supported);
+
+  bool tcmalloc_supported = false;
+#ifdef ROCKSDB_TCMALLOC
+  tcmalloc_supported = HasTCMalloc();
+#endif
+  ROCKS_LOG_HEADER(logger, "TCMalloc supported: %d", tcmalloc_supported);
 }
 }  // namespace
 

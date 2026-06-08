@@ -14,6 +14,7 @@
 #include "logging/logging.h"
 #include "port/malloc.h"
 #include "port/mimalloc_helper.h"
+#include "port/tcmalloc_helper.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
@@ -24,9 +25,11 @@ namespace ROCKSDB_NAMESPACE {
 void Arena::BlockDeleter::operator()(char* p) const {
 #ifdef ROCKSDB_MIMALLOC
   mi_free(p);
+#elif defined(ROCKSDB_TCMALLOC)
+  tc_deletearray(p);
 #else
   delete[] p;
-#endif  // ROCKSDB_MIMALLOC
+#endif
 }
 
 size_t Arena::OptimizeBlockSize(size_t block_size) {
@@ -156,14 +159,18 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   // here
 #ifdef ROCKSDB_MIMALLOC
   char* block = static_cast<char*>(mi_new(block_bytes));
+#elif defined(ROCKSDB_TCMALLOC)
+  char* block = static_cast<char*>(tc_newarray(block_bytes));
 #else
   char* block = new char[block_bytes];
-#endif  // ROCKSDB_MIMALLOC
+#endif
   blocks_.emplace_back(block);
 
   size_t allocated_size;
 #ifdef ROCKSDB_MIMALLOC
   allocated_size = mi_usable_size(block);
+#elif defined(ROCKSDB_TCMALLOC)
+  allocated_size = tc_malloc_size(block);
 #elif defined(ROCKSDB_MALLOC_USABLE_SIZE)
   allocated_size = malloc_usable_size(block);
 #ifndef NDEBUG

@@ -95,6 +95,7 @@ endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_MIMALLOC "build with mimalloc" OFF)
+option(WITH_TCMALLOC "build with gperftools TCMalloc" OFF)
 option(WITH_LIBURING "build with liburing" ON)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
@@ -112,8 +113,11 @@ endif()
 
 include(CMakeDependentOption)
 
-if(WITH_JEMALLOC AND WITH_MIMALLOC)
-  message(FATAL_ERROR "WITH_JEMALLOC and WITH_MIMALLOC are mutually exclusive")
+if((WITH_JEMALLOC AND WITH_MIMALLOC) OR
+   (WITH_JEMALLOC AND WITH_TCMALLOC) OR
+   (WITH_MIMALLOC AND WITH_TCMALLOC))
+  message(FATAL_ERROR
+          "WITH_JEMALLOC, WITH_MIMALLOC, and WITH_TCMALLOC are mutually exclusive")
 endif()
 
 macro(configure_mimalloc)
@@ -131,6 +135,22 @@ macro(configure_mimalloc)
   endif()
 endmacro()
 
+macro(configure_tcmalloc)
+  find_path(TCMALLOC_INCLUDE_DIR
+    NAMES gperftools/tcmalloc.h
+    HINTS ${TCMALLOC_ROOT_DIR}/include)
+  find_library(TCMALLOC_LIBRARY
+    NAMES tcmalloc
+    HINTS ${TCMALLOC_ROOT_DIR}/lib)
+  if(NOT TCMALLOC_INCLUDE_DIR OR NOT TCMALLOC_LIBRARY)
+    message(FATAL_ERROR
+            "WITH_TCMALLOC requires gperftools headers and libtcmalloc")
+  endif()
+  add_definitions(-DROCKSDB_TCMALLOC)
+  include_directories(${TCMALLOC_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${TCMALLOC_LIBRARY})
+endmacro()
+
 if(MSVC)
   option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
@@ -142,10 +162,14 @@ if(MSVC)
 
   if(WITH_MIMALLOC)
     configure_mimalloc()
+  elseif(WITH_TCMALLOC)
+    configure_tcmalloc()
   endif()
 else()
   if(WITH_MIMALLOC)
     configure_mimalloc()
+  elseif(WITH_TCMALLOC)
+    configure_tcmalloc()
   elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
@@ -412,7 +436,7 @@ if(WITH_ASAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
-  if(WITH_JEMALLOC OR WITH_MIMALLOC)
+  if(WITH_JEMALLOC OR WITH_MIMALLOC OR WITH_TCMALLOC)
     message(FATAL_ERROR "ASAN cannot be combined with an overriding allocator")
   endif()
 endif()
@@ -422,7 +446,7 @@ if(WITH_TSAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -Wl,-pie")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fPIC")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fPIC")
-  if(WITH_JEMALLOC OR WITH_MIMALLOC)
+  if(WITH_JEMALLOC OR WITH_MIMALLOC OR WITH_TCMALLOC)
     message(FATAL_ERROR "TSAN cannot be combined with an overriding allocator")
   endif()
 endif()
@@ -433,7 +457,7 @@ if(WITH_UBSAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
-  if(WITH_JEMALLOC OR WITH_MIMALLOC)
+  if(WITH_JEMALLOC OR WITH_MIMALLOC OR WITH_TCMALLOC)
     message(FATAL_ERROR "UBSAN cannot be combined with an overriding allocator")
   endif()
 endif()
@@ -917,6 +941,7 @@ set(SOURCES
         memory/memkind_kmem_allocator.cc
         memory/memory_allocator.cc
         memory/mimalloc_allocator.cc
+        memory/tcmalloc_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -1330,7 +1355,7 @@ if(ROCKSDB_BUILD_SHARED)
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-  if(WITH_MIMALLOC AND UNIX AND NOT APPLE)
+  if((WITH_MIMALLOC OR WITH_TCMALLOC) AND UNIX AND NOT APPLE)
     target_link_options(${ROCKSDB_SHARED_LIB} PRIVATE "LINKER:-z,defs")
   endif()
 

@@ -371,6 +371,7 @@ endif
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
 	DISABLE_MIMALLOC=1
+	DISABLE_TCMALLOC=1
 	ASAN_OPTIONS?=detect_stack_use_after_return=1
 	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
@@ -389,6 +390,7 @@ endif
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
 	DISABLE_MIMALLOC=1
+	DISABLE_TCMALLOC=1
 	# Use a suppressions file instead of the process-wide TSAN default
 	# suppressions hook, which belongs to the final application.
 	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
@@ -413,6 +415,7 @@ endif
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
 	DISABLE_MIMALLOC=1
+	DISABLE_TCMALLOC=1
 	# Suppress alignment warning because murmurhash relies on casting unaligned
 	# memory to integer. Fixing it may cause performance regression. 3-way crc32
 	# relies on it too, although it can be rewritten to eliminate with minimal
@@ -437,6 +440,14 @@ ifdef MIMALLOC
 ifdef JEMALLOC
 $(error MIMALLOC and JEMALLOC are mutually exclusive)
 endif
+ifdef TCMALLOC
+$(error MIMALLOC and TCMALLOC are mutually exclusive)
+endif
+endif
+ifdef JEMALLOC
+ifdef TCMALLOC
+$(error JEMALLOC and TCMALLOC are mutually exclusive)
+endif
 endif
 
 ifndef DISABLE_MIMALLOC
@@ -451,6 +462,20 @@ ifndef DISABLE_MIMALLOC
 	EXEC_LDFLAGS := $(MIMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(MIMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(MIMALLOC_INCLUDE)
+endif
+
+ifndef DISABLE_TCMALLOC
+	ifdef TCMALLOC
+		PLATFORM_CXXFLAGS += -DROCKSDB_TCMALLOC
+		PLATFORM_CCFLAGS  += -DROCKSDB_TCMALLOC
+	endif
+	ifdef WITH_TCMALLOC_FLAG
+		PLATFORM_LDFLAGS += -ltcmalloc
+		JAVA_LDFLAGS += -ltcmalloc
+	endif
+	EXEC_LDFLAGS := $(TCMALLOC_LIB) $(EXEC_LDFLAGS)
+	PLATFORM_CXXFLAGS += $(TCMALLOC_INCLUDE)
+	PLATFORM_CCFLAGS += $(TCMALLOC_INCLUDE)
 endif
 
 ifndef DISABLE_JEMALLOC
