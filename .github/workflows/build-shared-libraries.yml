@@ -34,12 +34,8 @@ jobs:
       shell: bash
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-        portfile=vcpkg/ports/mimalloc/portfile.cmake
-        grep -q -- '-DMI_USE_CXX=ON' "$portfile"
-        sed -i '/-DMI_USE_CXX=ON/a\        -DMI_LOCAL_DYNAMIC_TLS=ON' \
-          "$portfile"
         ./vcpkg/vcpkg install \
-          "mimalloc:${{ matrix.vcpkg_triplet }}" \
+          "jemalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
           "zstd:${{ matrix.vcpkg_triplet }}" \
           "lz4:${{ matrix.vcpkg_triplet }}" \
@@ -65,8 +61,8 @@ jobs:
           -DWITH_CORE_TOOLS=OFF
           -DWITH_EXAMPLES=OFF
           -DWITH_GFLAGS=OFF
-          -DWITH_JEMALLOC=OFF
-          -DWITH_MIMALLOC=ON
+          -DWITH_JEMALLOC=ON
+          -DWITH_MIMALLOC=OFF
           -DWITH_LIBURING=OFF
           -DWITH_LZ4=ON
           -DWITH_SNAPPY=ON
@@ -101,7 +97,7 @@ jobs:
         find "$package/lib" -type f -name 'librocksdb.so*' \
           -exec strip --strip-debug {} +
         cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
-        for dependency in mimalloc snappy zstd lz4 zlib bzip2; do
+        for dependency in jemalloc snappy zstd lz4 zlib bzip2; do
           cp "$deps/share/$dependency/copyright" \
             "$package/licenses/$dependency.txt"
         done
@@ -131,7 +127,7 @@ jobs:
         PY
         if readelf -d \
           "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
-          grep -E 'lib(mimalloc|snappy|zstd|lz4|z|bz2)\.so'; then
+          grep -E 'lib(jemalloc|snappy|zstd|lz4|z|bz2)\.so'; then
           echo "Third-party dependencies must be statically linked"
           exit 1
         fi
@@ -366,7 +362,7 @@ jobs:
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
         ./vcpkg/vcpkg install \
-          "mimalloc:${{ matrix.vcpkg_triplet }}" \
+          "jemalloc:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
           "zstd:${{ matrix.vcpkg_triplet }}" \
           "lz4:${{ matrix.vcpkg_triplet }}" \
@@ -391,8 +387,8 @@ jobs:
           -DWITH_CORE_TOOLS=OFF \
           -DWITH_EXAMPLES=OFF \
           -DWITH_GFLAGS=OFF \
-          -DWITH_JEMALLOC=OFF \
-          -DWITH_MIMALLOC=ON \
+          -DWITH_JEMALLOC=ON \
+          -DWITH_MIMALLOC=OFF \
           -DWITH_LIBURING=OFF \
           -DWITH_LZ4=ON \
           -DWITH_SNAPPY=ON \
@@ -414,7 +410,7 @@ jobs:
         find "$package/lib" -type f -name 'librocksdb*.dylib' \
           -exec strip -S {} +
         cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
-        for dependency in mimalloc snappy zstd lz4 zlib bzip2; do
+        for dependency in jemalloc snappy zstd lz4 zlib bzip2; do
           cp "$deps/share/$dependency/copyright" \
             "$package/licenses/$dependency.txt"
         done
@@ -427,7 +423,7 @@ jobs:
           grep -A 3 LC_BUILD_VERSION
         if otool -L \
           "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
-          grep -E 'lib(mimalloc|snappy|zstd|lz4|z|bz2)\.'; then
+          grep -E 'lib(jemalloc|snappy|zstd|lz4|z|bz2)\.'; then
           echo "Third-party dependencies must be statically linked"
           exit 1
         fi
