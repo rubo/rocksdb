@@ -140,7 +140,7 @@ jobs:
             "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
           sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' |
           grep -Ev \
-            '^(libc|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s)\.so(\.|$)' ||
+            '^(ld-linux-(x86-64|aarch64)|libc|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s)\.so(\.|$)' ||
             true
         )"
         if [[ -n "$unexpected_dependencies" ]]; then
