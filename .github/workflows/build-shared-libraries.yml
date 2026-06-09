@@ -34,6 +34,30 @@ jobs:
       shell: bash
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        port_dir=vcpkg/ports/gperftools
+        cat >"$port_dir/dynamic-tls.diff" <<'PATCH'
+        diff --git a/src/base/basictypes.h b/src/base/basictypes.h
+        index 985fcdd..6d5d86c 100644
+        --- a/src/base/basictypes.h
+        +++ b/src/base/basictypes.h
+        @@ -87,5 +87,5 @@
+         #if defined(HAVE___ATTRIBUTE__)
+        -#define ATTR_INITIAL_EXEC __attribute__ ((tls_model ("initial-exec")))
+        +#define ATTR_INITIAL_EXEC
+         #else
+         #define ATTR_INITIAL_EXEC
+         #endif
+        PATCH
+        portfile="$port_dir/portfile.cmake"
+        grep -Fxq '    PATCHES' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    PATCHES' ]]; then
+            printf '%s\n' '        dynamic-tls.diff'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- 'dynamic-tls.diff' "$portfile"
         ./vcpkg/vcpkg install \
           "gperftools:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
@@ -407,6 +431,30 @@ jobs:
         MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        port_dir=vcpkg/ports/gperftools
+        cat >"$port_dir/dynamic-tls.diff" <<'PATCH'
+        diff --git a/src/base/basictypes.h b/src/base/basictypes.h
+        index 985fcdd..6d5d86c 100644
+        --- a/src/base/basictypes.h
+        +++ b/src/base/basictypes.h
+        @@ -87,5 +87,5 @@
+         #if defined(HAVE___ATTRIBUTE__)
+        -#define ATTR_INITIAL_EXEC __attribute__ ((tls_model ("initial-exec")))
+        +#define ATTR_INITIAL_EXEC
+         #else
+         #define ATTR_INITIAL_EXEC
+         #endif
+        PATCH
+        portfile="$port_dir/portfile.cmake"
+        grep -Fxq '    PATCHES' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    PATCHES' ]]; then
+            printf '%s\n' '        dynamic-tls.diff'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- 'dynamic-tls.diff' "$portfile"
         ./vcpkg/vcpkg install \
           "gperftools:${{ matrix.vcpkg_triplet }}" \
           "snappy:${{ matrix.vcpkg_triplet }}" \
