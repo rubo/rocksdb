@@ -35,7 +35,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           autoconf autoconf-archive automake libtool
-    - name: Build static compression dependencies
+    - name: Build static dependencies
       shell: bash
       run: |
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
@@ -57,15 +57,27 @@ jobs:
           "zlib:${{ matrix.vcpkg_triplet }}" \
           "bzip2:${{ matrix.vcpkg_triplet }}" \
           --clean-after-build
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        test -f "$deps/lib/libjemalloc.a"
+        shared_dependencies="$(find "$deps/lib" -maxdepth 1 -type f \
+          \( -name '*.so' -o -name '*.so.*' \))"
+        if [[ -n "$shared_dependencies" ]]; then
+          echo "$shared_dependencies"
+          echo "The Linux vcpkg triplet produced shared dependencies"
+          exit 1
+        fi
     - name: Configure
       shell: bash
       run: |
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        jemalloc="$deps/lib/libjemalloc.a"
         cmake_args=(
           -S .
           -B build
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--whole-archive,$jemalloc,--no-whole-archive"
           "-DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake"
           -DFAIL_ON_WARNINGS=OFF
           -DPORTABLE=1
@@ -123,6 +135,19 @@ jobs:
         file "rocksdb-linux-${{ matrix.arch }}/lib/"librocksdb.so*
         readelf -d "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
           grep NEEDED
+        unexpected_dependencies="$(
+          readelf -d \
+            "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' |
+          grep -Ev \
+            '^(libc|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s)\.so(\.|$)' ||
+            true
+        )"
+        if [[ -n "$unexpected_dependencies" ]]; then
+          echo "$unexpected_dependencies"
+          echo "Only operating-system runtime dependencies are allowed"
+          exit 1
+        fi
         loader_output="$(ldd -r \
           "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" 2>&1)"
         echo "$loader_output"
@@ -144,6 +169,13 @@ jobs:
           "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
           grep -E 'lib(jemalloc|snappy|zstd|lz4|z|bz2)\.so'; then
           echo "Third-party dependencies must be statically linked"
+          exit 1
+        fi
+        if ! readelf -Ws \
+          "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          awk '$7 != "UND" && $8 ~ /^(je_)?mallocx(@@.*)?$/ { found=1 }
+               END { exit !found }'; then
+          echo "jemalloc was not embedded in the RocksDB shared library"
           exit 1
         fi
     - name: Verify from .NET container
@@ -202,7 +234,7 @@ jobs:
         repository: microsoft/vcpkg
         ref: "2026.04.27"
         path: vcpkg
-    - name: Build static compression dependencies
+    - name: Build static dependencies
       shell: pwsh
       run: |
         & ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
@@ -216,6 +248,16 @@ jobs:
           "bzip2:${{ matrix.vcpkg_triplet }}" `
           --clean-after-build
         if (!$?) { exit $LASTEXITCODE }
+        $deps = Join-Path $PWD `
+          "vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        $dynamicDependencies = @(
+          Get-ChildItem (Join-Path $deps "bin") -Filter *.dll `
+            -File -ErrorAction SilentlyContinue
+        )
+        if ($dynamicDependencies.Count -ne 0) {
+          throw "The Windows vcpkg triplet produced DLL dependencies: " +
+            "$($dynamicDependencies.Name -join ', ')"
+        }
     - name: Configure
       shell: pwsh
       run: |
@@ -373,7 +415,7 @@ jobs:
         path: vcpkg
     - name: Install jemalloc build tools
       run: brew install autoconf autoconf-archive automake libtool
-    - name: Build static compression dependencies
+    - name: Build static dependencies
       env:
         MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
       run: |
@@ -396,14 +438,27 @@ jobs:
           "zlib:${{ matrix.vcpkg_triplet }}" \
           "bzip2:${{ matrix.vcpkg_triplet }}" \
           --clean-after-build
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        test -f "$deps/lib/libjemalloc.a"
+        shared_dependencies="$(
+          find "$deps/lib" -maxdepth 1 -type f -name '*.dylib'
+        )"
+        if [[ -n "$shared_dependencies" ]]; then
+          echo "$shared_dependencies"
+          echo "The macOS vcpkg triplet produced shared dependencies"
+          exit 1
+        fi
     - name: Configure
       run: |
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        jemalloc="$deps/lib/libjemalloc.a"
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
           -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target }} \
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-force_load,$jemalloc" \
           -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
           -DFAIL_ON_WARNINGS=OFF \
           -DPORTABLE=1 \
@@ -446,12 +501,30 @@ jobs:
       run: |
         file "rocksdb-macos-${{ matrix.arch }}/lib/"librocksdb*.dylib
         otool -L "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib"
+        unexpected_dependencies="$(
+          otool -L \
+            "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          tail -n +2 |
+          awk '{ print $1 }' |
+          grep -Ev '^(@rpath/librocksdb|/usr/lib/|/System/Library/)' || true
+        )"
+        if [[ -n "$unexpected_dependencies" ]]; then
+          echo "$unexpected_dependencies"
+          echo "Only operating-system runtime dependencies are allowed"
+          exit 1
+        fi
         otool -l "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
           grep -A 3 LC_BUILD_VERSION
         if otool -L \
           "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
           grep -E 'lib(jemalloc|snappy|zstd|lz4|z|bz2)\.'; then
           echo "Third-party dependencies must be statically linked"
+          exit 1
+        fi
+        if ! nm -g \
+          "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          grep -Eq ' [Tt] _(je_)?mallocx$'; then
+          echo "jemalloc was not embedded in the RocksDB shared library"
           exit 1
         fi
     - uses: actions/upload-artifact@v4
