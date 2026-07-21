@@ -1,0 +1,563 @@
+name: Build shared libraries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x64
+          runner: ubuntu-22.04
+          vcpkg_triplet: x64-linux
+        - arch: arm64
+          runner: ubuntu-22.04-arm
+          vcpkg_triplet: arm64-linux
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: microsoft/vcpkg
+        ref: "2026.04.27"
+        path: vcpkg
+    - name: Build static dependencies
+      shell: bash
+      run: |
+        ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        port_dir=vcpkg/ports/gperftools
+        cat >"$port_dir/dynamic-tls.diff" <<'PATCH'
+        diff --git a/src/base/basictypes.h b/src/base/basictypes.h
+        index 985fcdd..6d5d86c 100644
+        --- a/src/base/basictypes.h
+        +++ b/src/base/basictypes.h
+        @@ -87,5 +87,5 @@
+         #if defined(HAVE___ATTRIBUTE__)
+        -#define ATTR_INITIAL_EXEC __attribute__ ((tls_model ("initial-exec")))
+        +#define ATTR_INITIAL_EXEC
+         #else
+         #define ATTR_INITIAL_EXEC
+         #endif
+        PATCH
+        portfile="$port_dir/portfile.cmake"
+        grep -Fxq '    PATCHES' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    PATCHES' ]]; then
+            printf '%s\n' '        dynamic-tls.diff'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- 'dynamic-tls.diff' "$portfile"
+        ./vcpkg/vcpkg install \
+          "gperftools:${{ matrix.vcpkg_triplet }}" \
+          "snappy:${{ matrix.vcpkg_triplet }}" \
+          "zstd:${{ matrix.vcpkg_triplet }}" \
+          "lz4:${{ matrix.vcpkg_triplet }}" \
+          "zlib:${{ matrix.vcpkg_triplet }}" \
+          "bzip2:${{ matrix.vcpkg_triplet }}" \
+          --clean-after-build
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        test -f "$deps/lib/libtcmalloc_minimal.a"
+        shared_dependencies="$(find "$deps/lib" -maxdepth 1 -type f \
+          \( -name '*.so' -o -name '*.so.*' \))"
+        if [[ -n "$shared_dependencies" ]]; then
+          echo "$shared_dependencies"
+          echo "The Linux vcpkg triplet produced shared dependencies"
+          exit 1
+        fi
+    - name: Configure
+      shell: bash
+      run: |
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        tcmalloc="$deps/lib/libtcmalloc_minimal.a"
+        cmake_args=(
+          -S .
+          -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--whole-archive,$tcmalloc,--no-whole-archive"
+          "-DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -DFAIL_ON_WARNINGS=OFF
+          -DPORTABLE=1
+          -DROCKSDB_BUILD_SHARED=ON
+          -DUSE_RTTI=OFF
+          "-DVCPKG_TARGET_TRIPLET=${{ matrix.vcpkg_triplet }}"
+          -DWITH_BENCHMARK_TOOLS=OFF
+          -DWITH_CORE_TOOLS=OFF
+          -DWITH_EXAMPLES=OFF
+          -DWITH_GFLAGS=OFF
+          -DWITH_JEMALLOC=OFF
+          -DWITH_MIMALLOC=OFF
+          -DWITH_TCMALLOC=ON
+          "-DTCMALLOC_INCLUDE_DIR=$deps/include"
+          "-DTCMALLOC_LIBRARY=$tcmalloc"
+          -DWITH_LIBURING=OFF
+          -DWITH_LZ4=ON
+          -DWITH_SNAPPY=ON
+          -DWITH_TESTS=OFF
+          -DWITH_TOOLS=OFF
+          -DWITH_TRACE_TOOLS=OFF
+          -DWITH_ZLIB=ON
+          -DWITH_ZSTD=ON
+          -DWITH_BZ2=ON
+        )
+
+        # RocksDB otherwise enables optional CRC and crypto instructions on
+        # every aarch64 compiler that accepts the flags.
+        if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+          cmake_args+=(
+            "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -march=armv8-a"
+            "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -march=armv8-a"
+          )
+        fi
+
+        cmake "${cmake_args[@]}"
+    - name: Build
+      run: cmake --build build --config Release --target rocksdb-shared
+    - name: Package
+      shell: bash
+      run: |
+        package="rocksdb-linux-${{ matrix.arch }}"
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        mkdir -p "$package/include" "$package/lib" "$package/licenses"
+        cp -R include/rocksdb "$package/include/"
+        cp -a build/librocksdb.so* "$package/lib/"
+        find "$package/lib" -type f -name 'librocksdb.so*' \
+          -exec strip --strip-debug {} +
+        cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
+        for dependency in gperftools snappy zstd lz4 zlib bzip2; do
+          cp "$deps/share/$dependency/copyright" \
+            "$package/licenses/$dependency.txt"
+        done
+        tar -czf "$package.tar.gz" "$package"
+    - name: Verify
+      shell: bash
+      run: |
+        file "rocksdb-linux-${{ matrix.arch }}/lib/"librocksdb.so*
+        readelf -d "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          grep NEEDED
+        unexpected_dependencies="$(
+          readelf -d \
+            "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' |
+          grep -Ev \
+            '^(ld-linux-(x86-64|aarch64)|libc|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s)\.so(\.|$)' ||
+            true
+        )"
+        if [[ -n "$unexpected_dependencies" ]]; then
+          echo "$unexpected_dependencies"
+          echo "Only operating-system runtime dependencies are allowed"
+          exit 1
+        fi
+        loader_output="$(ldd -r \
+          "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" 2>&1)"
+        echo "$loader_output"
+        if grep -E 'not found|undefined symbol' <<<"$loader_output"; then
+          echo "Packaged RocksDB has unresolved runtime dependencies"
+          exit 1
+        fi
+        python3 - <<'PY'
+        import ctypes
+        import os
+
+        path = os.path.realpath(
+            "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so"
+        )
+        ctypes.CDLL(path, mode=ctypes.RTLD_LOCAL)
+        print(f"Loaded {path}")
+        PY
+        if readelf -d \
+          "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          grep -E 'lib(tcmalloc(_minimal)?|snappy|zstd|lz4|z|bz2)\.so'; then
+          echo "Third-party dependencies must be statically linked"
+          exit 1
+        fi
+        if ! readelf -Ws \
+          "rocksdb-linux-${{ matrix.arch }}/lib/librocksdb.so" |
+          awk '$7 != "UND" && $8 ~ /^tc_malloc(@@.*)?$/ { found=1 }
+               END { exit !found }'; then
+          echo "TCMalloc was not embedded in the RocksDB shared library"
+          exit 1
+        fi
+    - name: Verify from .NET container
+      if: matrix.arch == 'x64'
+      shell: bash
+      run: |
+        package="rocksdb-linux-${{ matrix.arch }}"
+        mkdir -p dotnet-load-test
+        cat >dotnet-load-test/dotnet-load-test.csproj <<'EOF'
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net8.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        EOF
+        cat >dotnet-load-test/Program.cs <<'EOF'
+        using System;
+        using System.Runtime.InteropServices;
+
+        IntPtr handle = NativeLibrary.Load(args[0]);
+        Console.WriteLine($"Loaded {args[0]}");
+        NativeLibrary.Free(handle);
+        EOF
+        docker run --rm \
+          -v "$PWD/$package:/rocksdb:ro" \
+          -v "$PWD/dotnet-load-test:/src" \
+          -w /src \
+          mcr.microsoft.com/dotnet/sdk:8.0 \
+          dotnet run --configuration Release -- \
+          /rocksdb/lib/librocksdb.so
+    - uses: actions/upload-artifact@v4
+      with:
+        name: rocksdb-linux-${{ matrix.arch }}
+        path: rocksdb-linux-${{ matrix.arch }}.tar.gz
+        if-no-files-found: error
+        retention-days: 30
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x64
+          runner: windows-2022
+          vcpkg_triplet: x64-windows-static-md
+        - arch: arm64
+          runner: windows-11-arm
+          vcpkg_triplet: arm64-windows-static-md
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: microsoft/vcpkg
+        ref: "2026.04.27"
+        path: vcpkg
+    - name: Build static dependencies
+      shell: pwsh
+      run: |
+        & ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
+        if (!$?) { exit $LASTEXITCODE }
+        & ./vcpkg/vcpkg.exe install `
+          "mimalloc:${{ matrix.vcpkg_triplet }}" `
+          "snappy:${{ matrix.vcpkg_triplet }}" `
+          "zstd:${{ matrix.vcpkg_triplet }}" `
+          "lz4:${{ matrix.vcpkg_triplet }}" `
+          "zlib:${{ matrix.vcpkg_triplet }}" `
+          "bzip2:${{ matrix.vcpkg_triplet }}" `
+          --clean-after-build
+        if (!$?) { exit $LASTEXITCODE }
+        $deps = Join-Path $PWD `
+          "vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        $dynamicDependencies = @(
+          Get-ChildItem (Join-Path $deps "bin") -Filter *.dll `
+            -File -ErrorAction SilentlyContinue
+        )
+        if ($dynamicDependencies.Count -ne 0) {
+          throw "The Windows vcpkg triplet produced DLL dependencies: " +
+            "$($dynamicDependencies.Name -join ', ')"
+        }
+    - name: Configure
+      shell: pwsh
+      run: |
+        $deps = Join-Path $PWD `
+          "vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+
+        function Find-StaticLibrary([string[]] $patterns) {
+          $libraryDirectory = Join-Path $deps "lib"
+          foreach ($pattern in $patterns) {
+            $matches = @(Get-ChildItem $libraryDirectory -File `
+              -Filter $pattern)
+            if ($matches.Count -eq 1) {
+              return $matches[0].FullName
+            }
+            if ($matches.Count -gt 1) {
+              throw "Multiple libraries matched ${pattern}: $matches"
+            }
+          }
+          $available = Get-ChildItem $libraryDirectory -File -Filter *.lib |
+            Select-Object -ExpandProperty Name
+          $message = "Could not find any of: $($patterns -join ', '). " +
+            "Available libraries: $($available -join ', ')"
+          throw $message
+        }
+
+        $env:SNAPPY_INCLUDE = Join-Path $deps "include"
+        $env:SNAPPY_LIB_RELEASE = Find-StaticLibrary @("snappy.lib")
+        $env:SNAPPY_LIB_DEBUG = $env:SNAPPY_LIB_RELEASE
+        $env:LZ4_INCLUDE = Join-Path $deps "include"
+        $env:LZ4_LIB_RELEASE = Find-StaticLibrary @("lz4.lib")
+        $env:LZ4_LIB_DEBUG = $env:LZ4_LIB_RELEASE
+        $env:ZLIB_INCLUDE = Join-Path $deps "include"
+        $env:ZLIB_LIB_RELEASE = Find-StaticLibrary `
+          @("zs.lib", "zlib.lib", "zlibstatic.lib", "zlib*.lib")
+        $env:ZLIB_LIB_DEBUG = $env:ZLIB_LIB_RELEASE
+        $env:ZSTD_INCLUDE = Join-Path $deps "include"
+        $env:ZSTD_LIB_RELEASE = Find-StaticLibrary `
+          @("zstd.lib", "zstd_static.lib", "libzstd_static.lib")
+        $env:ZSTD_LIB_DEBUG = $env:ZSTD_LIB_RELEASE
+        $bzip2Library = Find-StaticLibrary `
+          @("bz2.lib", "bzip2.lib", "libbz2.lib")
+
+        $cmakeArguments = @(
+          "-S", ".",
+          "-B", "build",
+          "-G", "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DCMAKE_C_COMPILER=clang-cl",
+          "-DCMAKE_CXX_COMPILER=clang-cl",
+          "-DCMAKE_CXX_FLAGS=/DBZIP2 /I$($deps)/include",
+          "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
+          "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
+          "-DCMAKE_LINKER=lld-link",
+          "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
+          "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld $bzip2Library",
+          "-Dmimalloc_DIR=$deps/share/mimalloc",
+          "-DFAIL_ON_WARNINGS=OFF",
+          "-DPORTABLE=1",
+          "-DROCKSDB_BUILD_SHARED=ON",
+          "-DROCKSDB_INSTALL_ON_WINDOWS=ON",
+          "-DUSE_RTTI=OFF",
+          "-DWIN_CI=ON",
+          "-DWITH_BENCHMARK_TOOLS=OFF",
+          "-DWITH_CORE_TOOLS=OFF",
+          "-DWITH_EXAMPLES=OFF",
+          "-DWITH_GFLAGS=OFF",
+          "-DWITH_JEMALLOC=OFF",
+          "-DWITH_MIMALLOC=ON",
+          "-DWITH_TCMALLOC=OFF",
+          "-DWITH_LIBURING=OFF",
+          "-DWITH_LZ4=ON",
+          "-DWITH_SNAPPY=ON",
+          "-DWITH_TESTS=OFF",
+          "-DWITH_TOOLS=OFF",
+          "-DWITH_TRACE_TOOLS=OFF",
+          "-DWITH_ZLIB=ON",
+          "-DWITH_ZSTD=ON"
+        )
+        & cmake @cmakeArguments
+        if (!$?) { exit $LASTEXITCODE }
+    - name: Build
+      run: cmake --build build --config Release --target rocksdb-shared
+    - name: Package
+      shell: pwsh
+      run: |
+        $package = "rocksdb-windows-${{ matrix.arch }}"
+        $deps = Join-Path $PWD `
+          "vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        New-Item -ItemType Directory -Path `
+          "$package/bin", "$package/include", "$package/lib", `
+          "$package/licenses" | Out-Null
+        Copy-Item include/rocksdb "$package/include/" -Recurse
+
+        $dll = Get-ChildItem build -Recurse -Filter rocksdb-shared.dll |
+          Select-Object -First 1
+        $importLibrary = Get-ChildItem build -Recurse `
+          -Filter rocksdb-shared.lib | Select-Object -First 1
+        if (!$dll -or !$importLibrary) {
+          throw "RocksDB DLL or import library was not produced"
+        }
+
+        Copy-Item $dll.FullName "$package/bin/"
+        & llvm-strip --strip-debug "$package/bin/rocksdb-shared.dll"
+        if (!$?) { exit $LASTEXITCODE }
+        Copy-Item $importLibrary.FullName "$package/lib/"
+        Copy-Item COPYING, LICENSE.Apache, LICENSE.leveldb, README.md $package
+        foreach ($dependency in @(
+          "mimalloc", "snappy", "zstd", "lz4", "zlib", "bzip2"
+        )) {
+          Copy-Item "$deps/share/$dependency/copyright" `
+            "$package/licenses/$dependency.txt"
+        }
+        Compress-Archive -Path $package -DestinationPath "$package.zip"
+    - name: Verify
+      shell: pwsh
+      run: |
+        $package = "rocksdb-windows-${{ matrix.arch }}"
+        $dll = Get-Item "$package/bin/rocksdb-shared.dll"
+        $dependencies = & llvm-readobj --coff-imports $dll.FullName
+        $dependencies
+        if ($dependencies -match `
+          "(mimalloc|snappy|zstd|lz4|zlib|bzip2|libbz2)\.dll") {
+          throw "Third-party dependencies must be statically linked"
+        }
+        Get-Item "$package/lib/rocksdb-shared.lib"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: rocksdb-windows-${{ matrix.arch }}
+        path: rocksdb-windows-${{ matrix.arch }}.zip
+        if-no-files-found: error
+        retention-days: 30
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x64
+          runner: macos-15-intel
+          cmake_arch: x86_64
+          deployment_target: "10.15"
+          vcpkg_triplet: x64-osx
+        - arch: arm64
+          runner: macos-15
+          cmake_arch: arm64
+          deployment_target: "11.0"
+          vcpkg_triplet: arm64-osx
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: microsoft/vcpkg
+        ref: "2026.04.27"
+        path: vcpkg
+    - name: Build static dependencies
+      env:
+        MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+      run: |
+        ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        port_dir=vcpkg/ports/gperftools
+        cat >"$port_dir/dynamic-tls.diff" <<'PATCH'
+        diff --git a/src/base/basictypes.h b/src/base/basictypes.h
+        index 985fcdd..6d5d86c 100644
+        --- a/src/base/basictypes.h
+        +++ b/src/base/basictypes.h
+        @@ -87,5 +87,5 @@
+         #if defined(HAVE___ATTRIBUTE__)
+        -#define ATTR_INITIAL_EXEC __attribute__ ((tls_model ("initial-exec")))
+        +#define ATTR_INITIAL_EXEC
+         #else
+         #define ATTR_INITIAL_EXEC
+         #endif
+        PATCH
+        portfile="$port_dir/portfile.cmake"
+        grep -Fxq '    PATCHES' "$portfile"
+        while IFS= read -r line; do
+          printf '%s\n' "$line"
+          if [[ "$line" == '    PATCHES' ]]; then
+            printf '%s\n' '        dynamic-tls.diff'
+          fi
+        done <"$portfile" >"$portfile.tmp"
+        mv "$portfile.tmp" "$portfile"
+        grep -q -- 'dynamic-tls.diff' "$portfile"
+        ./vcpkg/vcpkg install \
+          "gperftools:${{ matrix.vcpkg_triplet }}" \
+          "snappy:${{ matrix.vcpkg_triplet }}" \
+          "zstd:${{ matrix.vcpkg_triplet }}" \
+          "lz4:${{ matrix.vcpkg_triplet }}" \
+          "zlib:${{ matrix.vcpkg_triplet }}" \
+          "bzip2:${{ matrix.vcpkg_triplet }}" \
+          --clean-after-build
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        test -f "$deps/lib/libtcmalloc_minimal.a"
+        shared_dependencies="$(
+          find "$deps/lib" -maxdepth 1 -type f -name '*.dylib'
+        )"
+        if [[ -n "$shared_dependencies" ]]; then
+          echo "$shared_dependencies"
+          echo "The macOS vcpkg triplet produced shared dependencies"
+          exit 1
+        fi
+    - name: Configure
+      run: |
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        tcmalloc="$deps/lib/libtcmalloc_minimal.a"
+        cmake -S . -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target }} \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-force_load,$tcmalloc" \
+          -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DFAIL_ON_WARNINGS=OFF \
+          -DPORTABLE=1 \
+          -DROCKSDB_BUILD_SHARED=ON \
+          -DUSE_RTTI=OFF \
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.vcpkg_triplet }} \
+          -DWITH_BENCHMARK_TOOLS=OFF \
+          -DWITH_CORE_TOOLS=OFF \
+          -DWITH_EXAMPLES=OFF \
+          -DWITH_GFLAGS=OFF \
+          -DWITH_JEMALLOC=OFF \
+          -DWITH_MIMALLOC=OFF \
+          -DWITH_TCMALLOC=ON \
+          -DTCMALLOC_INCLUDE_DIR="$deps/include" \
+          -DTCMALLOC_LIBRARY="$tcmalloc" \
+          -DWITH_LIBURING=OFF \
+          -DWITH_LZ4=ON \
+          -DWITH_SNAPPY=ON \
+          -DWITH_TESTS=OFF \
+          -DWITH_TOOLS=OFF \
+          -DWITH_TRACE_TOOLS=OFF \
+          -DWITH_ZLIB=ON \
+          -DWITH_ZSTD=ON \
+          -DWITH_BZ2=ON
+    - name: Build
+      run: cmake --build build --config Release --target rocksdb-shared
+    - name: Package
+      run: |
+        package="rocksdb-macos-${{ matrix.arch }}"
+        deps="$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.vcpkg_triplet }}"
+        mkdir -p "$package/include" "$package/lib" "$package/licenses"
+        cp -R include/rocksdb "$package/include/"
+        cp -a build/librocksdb*.dylib "$package/lib/"
+        find "$package/lib" -type f -name 'librocksdb*.dylib' \
+          -exec strip -S {} +
+        cp COPYING LICENSE.Apache LICENSE.leveldb README.md "$package/"
+        for dependency in gperftools snappy zstd lz4 zlib bzip2; do
+          cp "$deps/share/$dependency/copyright" \
+            "$package/licenses/$dependency.txt"
+        done
+        tar -czf "$package.tar.gz" "$package"
+    - name: Verify
+      run: |
+        file "rocksdb-macos-${{ matrix.arch }}/lib/"librocksdb*.dylib
+        otool -L "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib"
+        unexpected_dependencies="$(
+          otool -L \
+            "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          tail -n +2 |
+          awk '{ print $1 }' |
+          grep -Ev '^(@rpath/librocksdb|/usr/lib/|/System/Library/)' || true
+        )"
+        if [[ -n "$unexpected_dependencies" ]]; then
+          echo "$unexpected_dependencies"
+          echo "Only operating-system runtime dependencies are allowed"
+          exit 1
+        fi
+        otool -l "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          grep -A 3 LC_BUILD_VERSION
+        if otool -L \
+          "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          grep -E 'lib(tcmalloc(_minimal)?|snappy|zstd|lz4|z|bz2)\.'; then
+          echo "Third-party dependencies must be statically linked"
+          exit 1
+        fi
+        if ! nm -g \
+          "rocksdb-macos-${{ matrix.arch }}/lib/librocksdb.dylib" |
+          grep -Eq ' [Tt] _tc_malloc$'; then
+          echo "TCMalloc was not embedded in the RocksDB shared library"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v4
+      with:
+        name: rocksdb-macos-${{ matrix.arch }}
+        path: rocksdb-macos-${{ matrix.arch }}.tar.gz
+        if-no-files-found: error
+        retention-days: 30

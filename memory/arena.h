@@ -88,11 +88,15 @@ class Arena : public Allocator {
   static size_t OptimizeBlockSize(size_t block_size);
 
  private:
+  struct BlockDeleter {
+    void operator()(char* p) const;
+  };
+
   alignas(std::max_align_t) char inline_block_[kInlineSize];
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Allocated memory blocks
-  std::deque<std::unique_ptr<char[]>> blocks_;
+  std::deque<std::unique_ptr<char[], BlockDeleter>> blocks_;
   // Huge page allocations
   std::deque<MemMapping> huge_blocks_;
   size_t irregular_block_num = 0;

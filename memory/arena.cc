@@ -13,12 +13,24 @@
 
 #include "logging/logging.h"
 #include "port/malloc.h"
+#include "port/mimalloc_helper.h"
+#include "port/tcmalloc_helper.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+void Arena::BlockDeleter::operator()(char* p) const {
+#ifdef ROCKSDB_MIMALLOC
+  mi_free(p);
+#elif defined(ROCKSDB_TCMALLOC)
+  tc_deletearray(p);
+#else
+  delete[] p;
+#endif
+}
 
 size_t Arena::OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
@@ -145,11 +157,21 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 char* Arena::AllocateNewBlock(size_t block_bytes) {
   // NOTE: std::make_unique zero-initializes the block so is not appropriate
   // here
+#ifdef ROCKSDB_MIMALLOC
+  char* block = static_cast<char*>(mi_new(block_bytes));
+#elif defined(ROCKSDB_TCMALLOC)
+  char* block = static_cast<char*>(tc_newarray(block_bytes));
+#else
   char* block = new char[block_bytes];
-  blocks_.push_back(std::unique_ptr<char[]>(block));
+#endif
+  blocks_.emplace_back(block);
 
   size_t allocated_size;
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef ROCKSDB_MIMALLOC
+  allocated_size = mi_usable_size(block);
+#elif defined(ROCKSDB_TCMALLOC)
+  allocated_size = tc_malloc_size(block);
+#elif defined(ROCKSDB_MALLOC_USABLE_SIZE)
   allocated_size = malloc_usable_size(block);
 #ifndef NDEBUG
   // It's hard to predict what malloc_usable_size() returns.
